@@ -10,33 +10,34 @@ from pathlib import Path
 from joblib import Parallel, delayed
 
 
-def get_vitis_hls_clang_pp_path() -> Path:
-    vitis_hls_bin_path_str = shutil.which("vitis_hls")
-    if vitis_hls_bin_path_str is None:
-        raise RuntimeError("vitis_hls not found in PATH")
-    vitis_hls_bin_path = Path(vitis_hls_bin_path_str)
-    vitis_hls_clang_pp_path = (
-        vitis_hls_bin_path.parent.parent
-        / "lnx64"
-        / "tools"
-        / "clang-3.9"
-        / "bin"
-        / "clang++"
+def gather_kernel_description() -> dict[str, str]:
+    kernel_descriptions: dict[str, str] = {}
+    kernel_description_md = (
+        Path(__file__).parent / "kernel_descriptions" / "kernel_descriptions.md"
     )
-    if not vitis_hls_clang_pp_path.exists():
-        raise RuntimeError(
-            f"Could not find vitis_hls clang++ bin at {vitis_hls_clang_pp_path}"
-        )
-    return vitis_hls_clang_pp_path
+    kernel_description_md_text = kernel_description_md.read_text()
+    kernel_description_md_text = kernel_description_md_text.replace(
+        "# Kernel Descriptions", ""
+    )
 
+    kernel_header_matches = list(re.finditer("## (.+)", kernel_description_md_text))
+    kernel_header_match_text = [match.group(1) for match in kernel_header_matches]
+    kernel_header_locs_start = [match.span()[0] for match in kernel_header_matches]
+    for i in range(len(kernel_header_locs_start)):
+        if i < len(kernel_header_locs_start) - 1:
+            kernel_descriptions[kernel_header_match_text[i]] = (
+                kernel_description_md_text[
+                    kernel_header_locs_start[i] : kernel_header_locs_start[i + 1]
+                ]
+            )
+        else:
+            kernel_descriptions[kernel_header_match_text[i]] = (
+                kernel_description_md_text[kernel_header_locs_start[i] :]
+            )
 
-def get_vitis_hls_include_dir() -> Path:
-    vitis_hls_bin_path_str = shutil.which("vitis_hls")
-    if vitis_hls_bin_path_str is None:
-        raise RuntimeError("vitis_hls not found in PATH")
-    vitis_hls_bin_path = Path(vitis_hls_bin_path_str)
-    vitis_hls_include_dir = vitis_hls_bin_path.parent.parent / "include"
-    return vitis_hls_include_dir
+    kernel_descriptions = {k: v.strip() for k, v in kernel_descriptions.items()}
+
+    return kernel_descriptions
 
 
 def main(args: argparse.Namespace):
@@ -56,6 +57,8 @@ def main(args: argparse.Namespace):
 
     design_src_dirs = sorted(benchmark_src_dir.glob("*"))
 
+    kernel_descriptions = gather_kernel_description()
+
     def process_benchmark(design_src_dir: Path):
         design_name = design_src_dir.name
         print(f"Processing {design_name}")
@@ -64,7 +67,10 @@ def main(args: argparse.Namespace):
         for src_file in design_src_dir.glob("*"):
             shutil.copy(src_file, design_output_dir)
 
-        top_name = None
+        # make a kernel_description.md
+        kernel_description = kernel_descriptions[design_name]
+        kernel_description_fp = design_output_dir / "kernel_description.md"
+        kernel_description_fp.write_text(kernel_description)
 
     Parallel(n_jobs=n_jobs)(
         delayed(process_benchmark)(benchmark) for benchmark in design_src_dirs

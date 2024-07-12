@@ -2,5 +2,6 @@
 .mypy_cache
 **/__pycache__
 
+.env
 test_temp_synth/
 test_temp_compile/
